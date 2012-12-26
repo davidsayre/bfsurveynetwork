@@ -52,35 +52,21 @@ class eZSurveyNetwork extends eZSurveyQuestion
   function processViewActions( &$validation, $params )
   {
  
-	$http = eZHTTPTool::instance();
-	$variableArray = array();
-	
-	$prefix = eZSurveyType::PREFIX_ATTRIBUTE;
-	$attributeID = $params[ 'contentobjectattribute_id' ];
+  	//$http = eZHTTPTool::instance();
+  	$variableArray = array();
+  	
+  	//$prefix = eZSurveyType::PREFIX_ATTRIBUTE;
+  	//$attributeID = $params[ 'contentobjectattribute_id' ];
 
-	$postSurveyAnswer = $prefix . '_ezsurvey_answer_' . $this->ID . '_' . $attributeID;
-	
-	$sAnswer = ''; //answer to save
-	
-	//check for network form field
-	if( $http->hasPostVariable( $postSurveyAnswer ) )
-	{				  
-		$ini = eZINI::instance( 'bfsurveynetwork.ini' );			
-		$server_addr = $_SERVER["REMOTE_ADDR"];     
-			
-		//TODO: perform ip to network lookup
-		
-		//tsting 
-		$sAnswer = 'sanfrancisco';
-	}
-		 
-     //SKIP: if( $this->attribute( 'mandatory' ) == 1 ) {}
+  	//$postSurveyAnswer = $prefix . '_ezsurvey_answer_' . $this->ID . '_' . $attributeID;
+  	
+  	$sClientIP = self::getClientIPAddress();
+
+    //Save answer from client ip (not post)
+  	$this->setAnswer( $sClientIP );
+    $variableArray[ 'answer' ] = $sClientIP;
  
-     //Save
-	 $this->setAnswer( $http->postVariable( $postSurveyAnswer, $sAnswer ) );
-     $variableArray[ 'answer' ] = $http->postVariable( $postSurveyAnswer, $sAnswer );
- 
-      return $variableArray;
+    return $variableArray;
   }
  
   /*
@@ -88,21 +74,87 @@ class eZSurveyNetwork extends eZSurveyQuestion
    */
   function answer()
   {
-     //option 1) check for already defined
-     if ( strlen($this->Answer) ) {
-       return $this->Answer;
-     }
-	 
-	 //option 2) check for answer post
-    /*
-     $postSurveyAnswer = $prefix . '_ezsurvey_answer_' . $this->ID . '_' . $this->contentObjectAttributeID();
-     if ( $http->hasPostVariable( $postSurveyAnswer ) && strlen($http->postVariable( $postSurveyAnswer ) ) )
-     {
-         $surveyAnswer = $http->postVariable( $postSurveyAnswer );
-         return $surveyAnswer;
-     }   
-     */
+    //option 1) check for already defined    
+    if ( strlen($this->Answer) ) {
+      return $this->Answer;
+    }
+
+    //option 2) get values
+    $sClientIP = self::getClientIPAddress();    
+    $surveyAnswer = $sClientIP;
+
+    $sNetworkLabel = false; //init
+    
+    //lookup network by client ip
+    if(class_exists('cmsxAuthIP')) {
+      $auth =  cmsxAuthIP::findByIP($sClientIP, false, false, false, true);
+
+      if( isset( $auth[0] ) )
+      {
+        $aNetwork = array(); //init
+        $aNetwork['user_id'] = $auth[0]['user_id'];
+        $aNetwork['address'] = $auth[0]['address'];
+        $aNetwork['user'] = eZUser::fetch( $auth[0]['user_id'] );
+        if(array_key_exists('user_id',$aNetwork) && is_object($aNetwork['user'])) {
+          $aNetwork['login'] = $aNetwork['user']->attribute('login');
+          $sNetworkLabel = trim($aNetwork['login']); //copy label
+        }       
+      }    
+    }
+
+    //if network match found append to answer using '|'
+    if($sNetworkLabel) {
+      $surveyAnswer = trim($surveyAnswer) . "|" . $sNetworkLabel;
+    }
+
+    $this->setAnswer($surveyAnswer); //save
+    return $surveyAnswer;
   }  
+
+  /* copied from cmsxAuthIPTools */
+  static function getClientIPAddress() {
+    foreach (array('HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED', 'HTTP_X_CLUSTER_CLIENT_IP', 'HTTP_FORWARDED_FOR', 'HTTP_FORWARDED', 'REMOTE_ADDR') as $key) {
+      if (array_key_exists($key, $_SERVER)) {
+        foreach (explode(',', $_SERVER[$key]) as $ip) {
+          if (self::isValidIP($ip)) {
+            return $ip;
+          }
+        }
+      }
+    }
+    return null;
+  }
+  
+  /* copied from cmsxAuthIPTools */
+  public static function isValidIP( $ip )
+  {
+    if (function_exists('filter_var'))
+    {
+      return ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4|FILTER_FLAG_NO_RES_RANGE ) );
+    } else {
+      return self::depicatedIpCheck($ip);
+    }
+  }
+
+  /* copied from cmsxAuthIPTools */
+  static function depicatedIpCheck($ip)
+  {
+
+    $regexp = "([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})";
+    
+    $validate = ereg($regexp, $ip);
+    
+    if ($validate == true)
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+  } 
+
 }
+
 eZSurveyQuestion::registerQuestionType( ezpI18n::tr( 'survey', 'Network' ), 'Network' );
 ?>
